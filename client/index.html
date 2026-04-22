@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Big Red</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --red: #c0392b; --red-dark: #922b21; --red-glow: rgba(192,57,43,0.4);
+      --blue: #2471a3; --blue-dark: #1a5276; --blue-glow: rgba(36,113,163,0.4);
+      --bg: #0d0d0d; --surface: #161616; --surface2: #1e1e1e;
+      --border: #2a2a2a; --text: #f0f0f0; --muted: #888; --radius: 10px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
+    h1,h2,h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 1px; }
+
+    .screen { display: none; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
+    .screen.active { display: flex; }
+
+    /* LANDING */
+    #screen-landing { gap: 32px; }
+    .logo { font-family: 'Bebas Neue', sans-serif; font-size: clamp(64px,12vw,120px); line-height: 1; text-align: center; }
+    .logo .big { color: var(--red); text-shadow: 0 0 40px var(--red-glow); }
+    .logo .small { color: #fff; font-size: 0.45em; display: block; letter-spacing: 6px; }
+    .card-landing { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 16px; }
+    input { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 15px; padding: 12px 14px; width: 100%; outline: none; transition: border-color 0.2s; }
+    input:focus { border-color: var(--red); }
+    input::placeholder { color: var(--muted); }
+    button { border: none; border-radius: 8px; cursor: pointer; font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 1px; padding: 12px 20px; transition: opacity 0.15s, transform 0.1s; width: 100%; }
+    button:hover { opacity: 0.88; }
+    button:active { transform: scale(0.98); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-red { background: var(--red); color: #fff; }
+    .btn-blue { background: var(--blue); color: #fff; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 14px; }
+    .btn-ghost:hover { border-color: var(--text); color: var(--text); opacity: 1; }
+    .divider { border: none; border-top: 1px solid var(--border); }
+    .error-msg { color: #e74c3c; font-size: 13px; text-align: center; min-height: 18px; }
+
+    /* LOBBY */
+    #screen-lobby { gap: 24px; }
+    .lobby-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 20px; }
+    .room-code-display { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
+    .room-code-display .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 2px; }
+    .room-code-display .code { font-family: 'Bebas Neue', sans-serif; font-size: 42px; color: var(--red); letter-spacing: 6px; }
+    .player-list { display: flex; flex-direction: column; gap: 8px; }
+    .player-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; font-size: 15px; }
+    .player-item .dot { width: 8px; height: 8px; background: #2ecc71; border-radius: 50%; flex-shrink: 0; }
+    .player-item .host-tag { margin-left: auto; font-size: 11px; color: var(--muted); background: var(--border); padding: 2px 7px; border-radius: 4px; }
+    .panel-title { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 10px; }
+
+    /* GAME */
+    #screen-game { justify-content: flex-start; padding: 0; }
+    .game-layout { display: grid; grid-template-columns: 1fr 280px; grid-template-rows: auto 1fr; width: 100%; max-width: 1100px; margin: 0 auto; padding: 20px; gap: 16px; }
+    .game-topbar { grid-column: 1/-1; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 20px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+    .game-title { font-size: 22px; color: var(--red); }
+    .score-block { display: flex; gap: 12px; margin-left: auto; }
+    .score-pill { display: flex; align-items: center; gap: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 14px; font-weight: 600; }
+    .score-pill.blue { border-color: var(--blue); color: #7fb3d3; }
+    .score-pill.red { border-color: var(--red); color: #e59a94; }
+    .deck-count { font-size: 13px; color: var(--muted); }
+    .game-main { display: flex; flex-direction: column; gap: 16px; }
+    .role-card { border-radius: var(--radius); padding: 16px 20px; border: 1px solid; }
+    .role-card.blue { background: rgba(36,113,163,0.12); border-color: var(--blue); }
+    .role-card.red { background: rgba(192,57,43,0.12); border-color: var(--red); }
+    .role-card .role-label { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); }
+    .role-card .role-name { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 1px; margin: 2px 0; }
+    .role-card.blue .role-name { color: #7fb3d3; }
+    .role-card.red .role-name { color: #e59a94; }
+    .role-card .role-info { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+    .known-players { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .known-tag { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; font-size: 12px; }
+    .known-tag.bigred { border-color: var(--red); color: #e59a94; }
+    .phase-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; flex: 1; }
+    .phase-title { font-size: 13px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 12px; }
+    .phase-content { display: flex; flex-direction: column; gap: 12px; }
+    .nominee-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+    .nominee-btn { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; padding: 8px 14px; width: auto; transition: border-color 0.2s, background 0.2s; }
+    .nominee-btn:hover { border-color: var(--red); background: rgba(192,57,43,0.1); opacity: 1; }
+    .vote-buttons { display: flex; gap: 10px; }
+    .vote-buttons button { flex: 1; }
+    .card-hand { display: flex; gap: 10px; flex-wrap: wrap; }
+    .playing-card { width: 70px; height: 100px; border-radius: 8px; border: 2px solid; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; display: flex; align-items: center; justify-content: center; font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 1px; }
+    .playing-card.blue { background: rgba(36,113,163,0.2); border-color: var(--blue); color: #7fb3d3; }
+    .playing-card.red { background: rgba(192,57,43,0.2); border-color: var(--red); color: #e59a94; }
+    .playing-card:hover { transform: translateY(-6px); box-shadow: 0 8px 20px rgba(0,0,0,0.4); opacity: 1; }
+    .played-track { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; }
+    .played-track-label { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 10px; }
+    .played-track-cards { display: flex; gap: 6px; flex-wrap: wrap; }
+    .mini-card { width: 32px; height: 44px; border-radius: 4px; border: 1px solid; }
+    .mini-card.blue { background: rgba(36,113,163,0.3); border-color: var(--blue); }
+    .mini-card.red { background: rgba(192,57,43,0.3); border-color: var(--red); }
+    .game-sidebar { display: flex; flex-direction: column; gap: 16px; }
+    .players-panel, .chat-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+    .player-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 14px; border-bottom: 1px solid var(--border); }
+    .player-row:last-child { border-bottom: none; }
+    .player-row.leader { color: var(--red); }
+    .player-row.eliminated { opacity: 0.35; text-decoration: line-through; }
+    .player-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .player-dot.blue { background: var(--blue); }
+    .player-dot.red { background: var(--red); }
+    .player-dot.unknown { background: var(--muted); }
+    .chat-panel { flex: 1; display: flex; flex-direction: column; }
+    .chat-messages { overflow-y: auto; max-height: 240px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; padding-right: 4px; }
+    .chat-messages::-webkit-scrollbar { width: 4px; }
+    .chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .chat-line { font-size: 13px; line-height: 1.4; }
+    .chat-line.system { color: var(--muted); font-style: italic; }
+    .chat-line .chat-name { font-weight: 600; color: var(--red); }
+    .chat-input-row { display: flex; gap: 8px; }
+    .chat-input-row input { flex: 1; }
+    .chat-input-row button { width: auto; padding: 10px 16px; font-size: 14px; }
+    .fail-counter { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+    .fail-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); border: 1px solid var(--muted); transition: background 0.2s; }
+    .fail-dot.filled { background: var(--red); border-color: var(--red); }
+
+    /* GAME OVER */
+    #screen-gameover { gap: 24px; text-align: center; }
+    .gameover-title { font-size: 80px; line-height: 1; }
+    .gameover-title.blue { color: var(--blue); text-shadow: 0 0 40px var(--blue-glow); }
+    .gameover-title.red { color: var(--red); text-shadow: 0 0 40px var(--red-glow); }
+    .gameover-reason { color: var(--muted); font-size: 16px; max-width: 400px; }
+
+    @media (max-width: 700px) {
+      .game-layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- LANDING -->
+<div id="screen-landing" class="screen active">
+  <div class="logo">
+    <span class="big">Big Red</span>
+    <span class="small">A Social Deduction Card Game</span>
+  </div>
+  <div class="card-landing">
+    <input id="username-input" type="text" placeholder="Your name" maxlength="20"/>
+    <button class="btn-red" onclick="createRoom()">Create Room</button>
+    <hr class="divider"/>
+    <input id="room-code-input" type="text" placeholder="Room code" maxlength="5" style="text-transform:uppercase"/>
+    <button class="btn-blue" onclick="joinRoom()">Join Room</button>
+    <p id="landing-error" class="error-msg"></p>
+  </div>
+</div>
+
+<!-- LOBBY -->
+<div id="screen-lobby" class="screen">
+  <div class="lobby-box">
+    <h2 style="font-size:32px">Waiting Room</h2>
+    <div class="room-code-display">
+      <div class="label">Room Code</div>
+      <div class="code" id="lobby-code">-----</div>
+    </div>
+    <div>
+      <div class="panel-title">Players (<span id="lobby-count">0</span>/10)</div>
+      <div class="player-list" id="lobby-player-list"></div>
+    </div>
+    <p style="font-size:13px;color:var(--muted)">Share the room code with friends. Need 5–10 players.</p>
+    <button class="btn-red" id="start-btn" onclick="startGame()" disabled>Start Game</button>
+    <p id="lobby-error" class="error-msg"></p>
+  </div>
+</div>
+
+<!-- GAME -->
+<div id="screen-game" class="screen">
+  <div class="game-layout">
+    <div class="game-topbar">
+      <span class="game-title">BIG RED</span>
+      <div class="fail-counter">
+        Failed votes:
+        <div class="fail-dot" id="fail-dot-0"></div>
+        <div class="fail-dot" id="fail-dot-1"></div>
+        <div class="fail-dot" id="fail-dot-2"></div>
+      </div>
+      <div class="score-block">
+        <div class="score-pill blue">🔵 Blue: <span id="score-blue">0</span>/5</div>
+        <div class="score-pill red">🔴 Red: <span id="score-red">0</span>/6</div>
+        <div class="deck-count">Deck: <span id="deck-count">17</span></div>
+      </div>
+    </div>
+    <div class="game-main">
+      <div class="role-card" id="role-card">
+        <div class="role-label">Your Role</div>
+        <div class="role-name" id="role-name">—</div>
+        <div class="role-info" id="role-info"></div>
+        <div class="known-players" id="known-players"></div>
+      </div>
+      <div class="phase-box">
+        <div class="phase-title">Current Phase</div>
+        <div class="phase-content" id="phase-content">
+          <p style="color:var(--muted)">Waiting...</p>
+        </div>
+      </div>
+      <div class="played-track">
+        <div class="played-track-label">Cards Played</div>
+        <div class="played-track-cards" id="played-track-cards"></div>
+      </div>
+    </div>
+    <div class="game-sidebar">
+      <div class="players-panel">
+        <div class="panel-title">Players</div>
+        <div id="players-list"></div>
+      </div>
+      <div class="chat-panel">
+        <div class="panel-title">Chat</div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-row">
+          <input id="chat-input" type="text" placeholder="Message..." maxlength="200" onkeydown="if(event.key==='Enter')sendChat()"/>
+          <button class="btn-red" onclick="sendChat()">↑</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- GAME OVER -->
+<div id="screen-gameover" class="screen">
+  <div class="gameover-title" id="gameover-title">—</div>
+  <div class="gameover-reason" id="gameover-reason"></div>
+  <button class="btn-ghost" style="max-width:200px;margin-top:16px" onclick="location.reload()">Play Again</button>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
