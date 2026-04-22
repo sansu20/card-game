@@ -4,8 +4,7 @@
   "description": "Big Red - A social deduction card game",
   "main": "server/server.js",
   "scripts": {
-    "start": "NODE_ENV=production HOST=sansu.local node server/server.js"
-
+    "start": "node server/server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
