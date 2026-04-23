@@ -103,10 +103,10 @@ function checkWinConditions(roomCode) {
   const gs = room.gameState;
   if (gs.blueCardsPlayed >= 5) {
     gs.winner = "blue"; gs.phase = "game_over";
-    io.to(roomCode).emit("game_over", { winner: "blue", reason: "5 Agent cards have been played — Agents win!" });
+    io.to(roomCode).emit("game_over", { winner: "blue", reason: "5 Agent cards have been played — Agents win!", allPlayers: gs.players.map(p => ({ id: p.id, username: p.username, role: p.role, team: p.team })) });
   } else if (gs.redCardsPlayed >= 6) {
     gs.winner = "red"; gs.phase = "game_over";
-    io.to(roomCode).emit("game_over", { winner: "red", reason: "6 Syndicate cards have been played — Syndicate wins!" });
+    io.to(roomCode).emit("game_over", { winner: "red", reason: "6 Syndicate cards have been played — Syndicate wins!", allPlayers: gs.players.map(p => ({ id: p.id, username: p.username, role: p.role, team: p.team })) });
   }
 }
 
@@ -130,7 +130,7 @@ function resolveCardPlayed(roomCode, playedCard) {
   const bigRed = gs.players.find((p) => p.role === "bigred");
   if (gs.redCardsBeforeThisRound >= 3 && gs.nominee?.id === bigRed?.id) {
     gs.winner = "red"; gs.phase = "game_over";
-    io.to(roomCode).emit("game_over", { winner: "red", reason: "King Crimson was the assistant with 3+ Syndicate cards already in play — Syndicate wins!" });
+    io.to(roomCode).emit("game_over", { winner: "red", reason: "King Crimson was the assistant with 3+ Syndicate cards already in play — Syndicate wins!", allPlayers: gs.players.map(p => ({ id: p.id, username: p.username, role: p.role, team: p.team })) });
     broadcastGameState(roomCode);
     return;
   }
@@ -150,7 +150,8 @@ function resolveCardPlayed(roomCode, playedCard) {
         const peekCards = gs.deck.slice(0, 3);
         io.to(currentLeader.id).emit("power_peek", { cards: peekCards });
         io.to(roomCode).emit("chat_msg", { system: true, text: `A power was triggered! ${currentLeader.username} is secretly examining the top 3 cards of the deck.` });
-        finishRound(roomCode, false);
+        // Don't auto-finish — wait for leader to click "Done" (power_peek_done event)
+        broadcastGameState(roomCode);
         return;
       }
 
@@ -292,6 +293,15 @@ io.on("connection", (socket) => {
       const yesVotes = Object.values(gs.votes).filter(Boolean).length;
       const passed = yesVotes > activePlayers.length / 2;
       if (passed) {
+        // Check King Crimson win condition: if KC is elected assistant with 3+ red cards already in play
+        const bigRed = gs.players.find((p) => p.role === "bigred");
+        if (gs.redCardsPlayed >= 3 && gs.nominee?.id === bigRed?.id) {
+          gs.winner = "red"; gs.phase = "game_over";
+          const allPlayers = gs.players.map(p => ({ id: p.id, username: p.username, role: p.role, team: p.team }));
+          io.to(roomCode).emit("game_over", { winner: "red", reason: "King Crimson was elected assistant with 3+ Syndicate cards in play — Syndicate wins!", allPlayers});
+          broadcastGameState(roomCode);
+          return;
+        }
         gs.phase = "leader_draw";
         io.to(roomCode).emit("chat_msg", { system: true, text: `Vote passed! ${gs.nominee.username} is the assistant.` });
       } else {
@@ -406,7 +416,7 @@ io.on("connection", (socket) => {
 
     if (target.role === "bigred") {
       gs.winner = "blue"; gs.phase = "game_over";
-      io.to(roomCode).emit("game_over", { winner: "blue", reason: `${target.username} was King Crimson! Agents win!` });
+      io.to(roomCode).emit("game_over", { winner: "blue", reason: `${target.username} was King Crimson! Agents win!`, allPlayers: gs.players.map(p => ({ id: p.id, username: p.username, role: p.role, team: p.team })) });
       broadcastGameState(roomCode);
       return;
     }
@@ -478,6 +488,18 @@ io.on("connection", (socket) => {
     gs.ineligibleAssistants = computeIneligible(gs);
     checkAndReshuffle(gs, roomCode);
     broadcastGameState(roomCode);
+  });
+
+  // POWER: PEEK DONE (leader acknowledges they've seen the cards)
+  socket.on("power_peek_done", () => {
+    const roomCode = socket.data.roomCode;
+    const room = rooms[roomCode];
+    if (!room || !room.gameState) return;
+    const gs = room.gameState;
+    const currentLeader = gs.leaderOrder[gs.currentLeaderIndex];
+    if (currentLeader.id !== socket.id) return;
+    if (gs.phase !== "power" || gs.pendingPower?.type !== "peek") return;
+    finishRound(roomCode, false);
   });
 
   // CHAT
