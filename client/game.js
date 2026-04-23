@@ -143,33 +143,40 @@ socket.on("chat_msg", (data) => {
   box.scrollTop = box.scrollHeight;
 });
 
+// socket.on("game_over", (data) => {
+//   const title = document.getElementById("gameover-title");
+//   title.textContent = data.winner === "blue" ? "AGENTS WIN" : "SYNDICATE WINS";
+//   title.className = "gameover-title " + data.winner;
+//   document.getElementById("gameover-reason").textContent = data.reason;
+
+//   // Render identity reveal
+//   if (data.allPlayers && data.allPlayers.length > 0) {
+//     const roleLabels = { bigred: "King Crimson", red: "Syndicate", blue: "Agent" };
+//     const reveal = document.getElementById("gameover-reveal");
+//     reveal.innerHTML = `
+//       <p style="font-size:12px;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:12px">Identity Reveal</p>
+//       <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center">
+//         ${data.allPlayers.map(p => {
+//           const isKC = p.role === "bigred";
+//           const isSyndicate = p.team === "red";
+//           const color = isSyndicate ? "var(--red)" : "var(--blue)";
+//           const border = isSyndicate ? "rgba(192,57,43,0.4)" : "rgba(36,113,163,0.4)";
+//           return `<div style="background:var(--surface);border:1px solid ${border};border-radius:10px;padding:12px 16px;min-width:120px;text-align:center">
+//             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">${escHtml(p.username)}</div>
+//             <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${color};margin-top:4px">${roleLabels[p.role]}</div>
+//             ${isKC ? '<div style="font-size:16px;margin-top:2px">👑</div>' : ''}
+//           </div>`;
+//         }).join("")}
+//       </div>`;
+//   }
+
+//   showScreen("screen-gameover");
+// });
 socket.on("game_over", (data) => {
   const title = document.getElementById("gameover-title");
   title.textContent = data.winner === "blue" ? "AGENTS WIN" : "SYNDICATE WINS";
   title.className = "gameover-title " + data.winner;
   document.getElementById("gameover-reason").textContent = data.reason;
-
-  // Render identity reveal
-  if (data.allPlayers && data.allPlayers.length > 0) {
-    const roleLabels = { bigred: "King Crimson", red: "Syndicate", blue: "Agent" };
-    const reveal = document.getElementById("gameover-reveal");
-    reveal.innerHTML = `
-      <p style="font-size:12px;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:12px">Identity Reveal</p>
-      <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center">
-        ${data.allPlayers.map(p => {
-          const isKC = p.role === "bigred";
-          const isSyndicate = p.team === "red";
-          const color = isSyndicate ? "var(--red)" : "var(--blue)";
-          const border = isSyndicate ? "rgba(192,57,43,0.4)" : "rgba(36,113,163,0.4)";
-          return `<div style="background:var(--surface);border:1px solid ${border};border-radius:10px;padding:12px 16px;min-width:120px;text-align:center">
-            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">${escHtml(p.username)}</div>
-            <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${color};margin-top:4px">${roleLabels[p.role]}</div>
-            ${isKC ? '<div style="font-size:16px;margin-top:2px">👑</div>' : ''}
-          </div>`;
-        }).join("")}
-      </div>`;
-  }
-
   showScreen("screen-gameover");
 });
 
