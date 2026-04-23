@@ -1,12 +1,11 @@
 const socket = io();
 
-// ── State ──────────────────────────────────────────────────────
 let myId = socket.id;
 let myUsername = "";
 let roomCode = "";
 let publicState = null;
 let privateInfo = null;
-let myHand = []; // cards in hand (leader drawn or assistant cards)
+let myHand = [];
 let isHost = false;
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -14,20 +13,21 @@ function showScreen(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
   document.getElementById(id).classList.add("active");
 }
-
 function setError(elId, msg) {
   const el = document.getElementById(elId);
   if (el) el.textContent = msg;
 }
+function escHtml(str) {
+  return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
 
-// ── Landing Actions ────────────────────────────────────────────
+// ── Landing ────────────────────────────────────────────────────
 function createRoom() {
   const username = document.getElementById("username-input").value.trim();
   if (!username) { setError("landing-error", "Enter your name first."); return; }
   myUsername = username;
   socket.emit("create_room", { username });
 }
-
 function joinRoom() {
   const username = document.getElementById("username-input").value.trim();
   const code = document.getElementById("room-code-input").value.trim().toUpperCase();
@@ -36,12 +36,7 @@ function joinRoom() {
   myUsername = username;
   socket.emit("join_room", { username, roomCode: code });
 }
-
-// ── Lobby Actions ──────────────────────────────────────────────
-function startGame() {
-  socket.emit("start_game");
-}
-
+function startGame() { socket.emit("start_game"); }
 function sendChat() {
   const input = document.getElementById("chat-input");
   const text = input.value.trim();
@@ -54,49 +49,31 @@ function sendChat() {
 socket.on("connect", () => { myId = socket.id; });
 
 socket.on("room_created", (data) => {
-  roomCode = data.roomCode;
-  isHost = true;
+  roomCode = data.roomCode; isHost = true;
   document.getElementById("lobby-code").textContent = roomCode;
   setError("landing-error", "");
   showScreen("screen-lobby");
 });
-
 socket.on("room_joined", (data) => {
-  roomCode = data.roomCode;
-  isHost = false;
+  roomCode = data.roomCode; isHost = false;
   document.getElementById("lobby-code").textContent = roomCode;
   setError("landing-error", "");
   showScreen("screen-lobby");
 });
-
 socket.on("lobby_update", (data) => {
-  const list = document.getElementById("lobby-player-list");
   document.getElementById("lobby-count").textContent = data.players.length;
-  list.innerHTML = data.players.map((p, i) => `
+  document.getElementById("lobby-player-list").innerHTML = data.players.map((p, i) => `
     <div class="player-item">
       <div class="dot"></div>
-      <span>${p.username}</span>
+      <span>${escHtml(p.username)}</span>
       ${i === 0 ? '<span class="host-tag">Host</span>' : ""}
-    </div>
-  `).join("");
-
-  const startBtn = document.getElementById("start-btn");
-  startBtn.disabled = !(isHost && data.players.length >= 5);
+    </div>`).join("");
+  document.getElementById("start-btn").disabled = !(isHost && data.players.length >= 5);
 });
-
 socket.on("error_msg", (data) => {
-  // Show error in whichever screen is active
-  const screens = ["landing-error", "lobby-error"];
-  screens.forEach(id => {
-    const el = document.getElementById(id);
-    if (el && document.getElementById(id.replace("-error", "screen-"))?.classList.contains("active")) {
-      el.textContent = data.message;
-    }
-  });
   setError("lobby-error", data.message);
   console.warn("Server error:", data.message);
 });
-
 socket.on("game_started", (data) => {
   publicState = data.publicState;
   privateInfo = data.privateInfo;
@@ -105,56 +82,75 @@ socket.on("game_started", (data) => {
   renderRoleCard();
   renderGameState();
 });
-
 socket.on("state_update", (data) => {
   publicState = data.publicState;
   renderGameState();
 });
-
 socket.on("private_update", (data) => {
   privateInfo = data.privateInfo;
   renderRoleCard();
 });
-
 socket.on("vote_update", (data) => {
   const el = document.getElementById("vote-tally");
   if (el) el.textContent = `${data.votesIn} / ${data.total} voted`;
 });
-
-// Leader receives 3 drawn cards
 socket.on("drawn_cards", (data) => {
   myHand = data.cards;
   renderLeaderDiscard();
 });
-
-// Assistant receives 2 cards to choose from
 socket.on("assistant_cards", (data) => {
   myHand = data.cards;
   renderAssistantPlay();
+});
+
+// Peek power — only the leader receives this
+socket.on("power_peek", (data) => {
+  const content = document.getElementById("phase-content");
+  content.innerHTML = `
+    <p style="font-size:15px">🔍 You secretly peeked at the top 3 cards of the deck (in order):</p>
+    <div class="card-hand">
+      ${data.cards.map((c, i) => `
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+          <div class="playing-card ${c}" style="cursor:default">${c.toUpperCase()}</div>
+          <span style="font-size:11px;color:var(--muted)">#${i+1}</span>
+        </div>
+      `).join("")}
+    </div>
+    <p style="color:var(--muted);font-size:13px">Only you can see this. You may share or keep this information.</p>`;
+});
+
+// Investigate result — only the leader receives this
+socket.on("power_investigate_result", (data) => {
+  const content = document.getElementById("phase-content");
+  const teamColor = data.team === "red" ? "var(--red)" : "var(--blue)";
+  content.innerHTML = `
+    <p style="font-size:15px">🔍 Investigation result:</p>
+    <p style="font-size:20px;font-family:'Bebas Neue',sans-serif;color:${teamColor}">
+      ${escHtml(data.username)} is on the <span style="color:${teamColor}">${data.team.toUpperCase()}</span> team.
+    </p>
+    <p style="color:var(--muted);font-size:13px">Only you can see this. You may share or keep this information.</p>`;
 });
 
 socket.on("chat_msg", (data) => {
   const box = document.getElementById("chat-messages");
   const line = document.createElement("div");
   line.className = "chat-line" + (data.system ? " system" : "");
-  if (data.system) {
-    line.textContent = data.text;
-  } else {
-    line.innerHTML = `<span class="chat-name">${escHtml(data.username)}</span>: ${escHtml(data.text)}`;
-  }
+  line.innerHTML = data.system
+    ? escHtml(data.text)
+    : `<span class="chat-name">${escHtml(data.username)}</span>: ${escHtml(data.text)}`;
   box.appendChild(line);
   box.scrollTop = box.scrollHeight;
 });
 
 socket.on("game_over", (data) => {
   const title = document.getElementById("gameover-title");
-  title.textContent = data.winner === "blue" ? "BLUE WINS" : "RED WINS";
+  title.textContent = data.winner === "blue" ? "AGENTS WIN" : "SYNDICATE WINS";
   title.className = "gameover-title " + data.winner;
   document.getElementById("gameover-reason").textContent = data.reason;
   showScreen("screen-gameover");
 });
 
-// ── Render Functions ───────────────────────────────────────────
+// ── Render ─────────────────────────────────────────────────────
 function renderRoleCard() {
   if (!privateInfo) return;
   const card = document.getElementById("role-card");
@@ -165,16 +161,16 @@ function renderRoleCard() {
   card.className = "role-card " + (privateInfo.team === "blue" ? "blue" : "red");
 
   if (privateInfo.role === "bigred") {
-    roleName.textContent = "Big Red";
+    roleName.textContent = "King Crimson";
     roleInfo.textContent = privateInfo.knownTeammates?.length > 0
-      ? "You know your red teammate (2-player red team)."
-      : "You are Big Red. You don't know who your red teammates are. Stay hidden.";
+      ? "You know your Syndicate ally (2-person Syndicate)."
+      : "You are King Crimson. Stay hidden — don't let the Agents find you.";
   } else if (privateInfo.role === "red") {
-    roleName.textContent = "Red Team";
-    roleInfo.textContent = "You know who Big Red is and your teammates. Help Big Red stay hidden.";
+    roleName.textContent = "Syndicate";
+    roleInfo.textContent = "You know who King Crimson is. Keep their identity hidden.";
   } else {
-    roleName.textContent = "Blue Team";
-    roleInfo.textContent = "You don't know anyone's identity. Find and eliminate Big Red, or play 5 blue cards.";
+    roleName.textContent = "Agent";
+    roleInfo.textContent = "You know nothing. Find and eliminate King Crimson, or play 5 Agent cards.";
   }
 
   knownPlayers.innerHTML = "";
@@ -182,7 +178,7 @@ function renderRoleCard() {
     privateInfo.knownTeammates.forEach(p => {
       const tag = document.createElement("div");
       tag.className = "known-tag" + (p.role === "bigred" ? " bigred" : "");
-      tag.textContent = p.role === "bigred" ? `🔴 ${p.username} (Big Red)` : p.username;
+      tag.textContent = p.role === "bigred" ? `🔴 ${p.username} (King Crimson)` : p.username;
       knownPlayers.appendChild(tag);
     });
   }
@@ -191,48 +187,37 @@ function renderRoleCard() {
 function renderGameState() {
   if (!publicState) return;
 
-  // Scores
   document.getElementById("score-blue").textContent = publicState.blueCardsPlayed;
   document.getElementById("score-red").textContent = publicState.redCardsPlayed;
   document.getElementById("deck-count").textContent = publicState.cardsRemaining;
 
-  // Failed vote dots
   for (let i = 0; i < 3; i++) {
     const dot = document.getElementById(`fail-dot-${i}`);
     if (dot) dot.className = "fail-dot" + (i < publicState.failedVoteCounter ? " filled" : "");
   }
 
-  // Played cards track
-  const track = document.getElementById("played-track-cards");
-  track.innerHTML = publicState.playedCards.map(c =>
-    `<div class="mini-card ${c}"></div>`
-  ).join("");
+  document.getElementById("played-track-cards").innerHTML =
+    publicState.playedCards.map(c => `<div class="mini-card ${c}"></div>`).join("");
 
-  // Players list
-  const pList = document.getElementById("players-list");
+  // Players sidebar
   const leader = publicState.leaderOrder[publicState.currentLeaderIndex];
-  pList.innerHTML = publicState.leaderOrder.map(p => {
+  document.getElementById("players-list").innerHTML = publicState.leaderOrder.map(p => {
     const isLeader = p.id === leader?.id;
     const isElim = publicState.eliminatedPlayers.includes(p.id);
     const isMe = p.id === myId;
-
-    // Dot color: show team color if known, else unknown
     let dotClass = "unknown";
     if (isMe && privateInfo) dotClass = privateInfo.team;
     else if (privateInfo?.role !== "blue") {
-      // red/bigred can see red team dots
-      const knownRed = privateInfo?.knownTeammates?.map(k => k.id) || [];
-      if (knownRed.includes(p.id)) dotClass = "red";
+      const knownRedIds = privateInfo?.knownTeammates?.map(k => k.id) || [];
+      if (knownRedIds.includes(p.id)) dotClass = "red";
     }
-
-    return `<div class="player-row ${isLeader ? "leader" : ""} ${isElim ? "eliminated" : ""}">
+    return `<div class="player-row ${isLeader?"leader":""} ${isElim?"eliminated":""}">
       <div class="player-dot ${dotClass}"></div>
-      <span>${escHtml(p.username)}${isMe ? " (you)" : ""}</span>
-      ${isLeader ? '<span style="margin-left:auto;font-size:11px">👑 Leader</span>' : ""}
+      <span>${escHtml(p.username)}${isMe?" (you)":""}</span>
+      ${isLeader?'<span style="margin-left:auto;font-size:11px">👑</span>':""}
     </div>`;
   }).join("");
 
-  // Phase UI
   renderPhase();
 }
 
@@ -245,16 +230,20 @@ function renderPhase() {
 
   if (publicState.phase === "nominate") {
     if (isLeader) {
-      // Show nominee buttons for all active, non-leader players
       const activePlayers = publicState.leaderOrder.filter(p =>
         !publicState.eliminatedPlayers.includes(p.id) && p.id !== myId
       );
+      const ineligible = publicState.ineligibleAssistants || [];
       content.innerHTML = `
         <p style="font-size:15px">You are the <strong style="color:var(--red)">Leader</strong>. Nominate an assistant:</p>
+        <p style="font-size:12px;color:var(--muted)">Greyed out players are ineligible this round.</p>
         <div class="nominee-grid">
-          ${activePlayers.map(p => `
-            <button class="nominee-btn" onclick="nominate('${p.id}')">${escHtml(p.username)}</button>
-          `).join("")}
+          ${activePlayers.map(p => {
+            const disabled = ineligible.includes(p.id);
+            return `<button class="nominee-btn" onclick="${disabled ? '' : `nominate('${p.id}')`}"
+              style="${disabled ? 'opacity:0.35;cursor:not-allowed;' : ''}"
+              ${disabled ? 'disabled' : ''}>${escHtml(p.username)}</button>`;
+          }).join("")}
         </div>`;
     } else {
       content.innerHTML = `<p style="color:var(--muted)">Waiting for <strong style="color:var(--text)">${escHtml(leader?.username)}</strong> to nominate an assistant...</p>`;
@@ -263,18 +252,16 @@ function renderPhase() {
 
   else if (publicState.phase === "vote") {
     const isElim = publicState.eliminatedPlayers.includes(myId);
-    const hasVoted = publicState.votes && publicState.votes[myId] !== undefined;
+    const hasVoted = publicState.votes?.[myId] !== undefined;
     const voteCount = Object.keys(publicState.votes || {}).length;
     const activeCount = publicState.leaderOrder.filter(p => !publicState.eliminatedPlayers.includes(p.id)).length;
-
     content.innerHTML = `
       <p style="font-size:15px"><strong style="color:var(--text)">${escHtml(publicState.nominee?.username)}</strong> has been nominated as assistant.</p>
-      <p style="color:var(--muted);font-size:13px">Vote to approve or reject:</p>
       ${!isElim && !hasVoted ? `
         <div class="vote-buttons">
           <button class="btn-blue" onclick="castVote(true)">✓ Approve</button>
           <button class="btn-red" onclick="castVote(false)">✗ Reject</button>
-        </div>` : `<p style="color:var(--muted);font-size:13px">${hasVoted ? "You have voted." : "You are eliminated."}</p>`}
+        </div>` : `<p style="color:var(--muted);font-size:13px">${hasVoted?"You have voted.":"You are eliminated."}</p>`}
       <p id="vote-tally" style="color:var(--muted);font-size:13px">${voteCount} / ${activeCount} voted</p>`;
   }
 
@@ -289,34 +276,70 @@ function renderPhase() {
   }
 
   else if (publicState.phase === "leader_discard") {
-    if (isLeader && myHand.length > 0) {
-      renderLeaderDiscard();
-    } else {
-      content.innerHTML = `<p style="color:var(--muted)">Waiting for <strong style="color:var(--text)">${escHtml(leader?.username)}</strong> to discard a card...</p>`;
-    }
+    if (isLeader && myHand.length > 0) renderLeaderDiscard();
+    else content.innerHTML = `<p style="color:var(--muted)">Waiting for <strong style="color:var(--text)">${escHtml(leader?.username)}</strong> to discard a card...</p>`;
   }
 
   else if (publicState.phase === "assistant_play") {
-    if (isNominee && myHand.length > 0) {
-      renderAssistantPlay();
-    } else {
-      content.innerHTML = `<p style="color:var(--muted)">Waiting for <strong style="color:var(--text)">${escHtml(publicState.nominee?.username)}</strong> to play a card...</p>`;
-    }
+    if (isNominee && myHand.length > 0) renderAssistantPlay();
+    else content.innerHTML = `<p style="color:var(--muted)">Waiting for <strong style="color:var(--text)">${escHtml(publicState.nominee?.username)}</strong> to play a card...</p>`;
   }
 
-  else if (publicState.phase === "game_over") {
-    content.innerHTML = `<p style="color:var(--muted)">Game over!</p>`;
+  else if (publicState.phase === "power") {
+    const power = publicState.pendingPower?.type;
+    if (isLeader) {
+      renderPowerUI(power);
+    } else {
+      const powerLabels = {
+        eliminate: "eliminate a player",
+        investigate: "secretly investigate a player",
+        pick_leader: "choose the next leader",
+        peek: "peek at the top 3 cards",
+      };
+      content.innerHTML = `<p style="color:var(--muted)">⚡ Power triggered! <strong style="color:var(--text)">${escHtml(leader?.username)}</strong> is using their power to ${powerLabels[power] || "use a power"}...</p>`;
+    }
+  }
+}
+
+function renderPowerUI(power) {
+  const content = document.getElementById("phase-content");
+  const activePlayers = publicState.leaderOrder.filter(p =>
+    !publicState.eliminatedPlayers.includes(p.id) && p.id !== myId
+  );
+
+  if (power === "eliminate") {
+    content.innerHTML = `
+      <p style="font-size:15px">⚡ <strong style="color:var(--red)">Elimination Power!</strong> Choose a player to eliminate:</p>
+      <p style="color:var(--muted);font-size:13px">Their identity will remain secret unless they are Big Red.</p>
+      <div class="nominee-grid">
+        ${activePlayers.map(p => `<button class="nominee-btn" onclick="powerEliminate('${p.id}')">${escHtml(p.username)}</button>`).join("")}
+      </div>`;
+  }
+
+  else if (power === "investigate") {
+    content.innerHTML = `
+      <p style="font-size:15px">⚡ <strong style="color:var(--red)">Investigation Power!</strong> Choose a player to investigate:</p>
+      <p style="color:var(--muted);font-size:13px">You'll learn if they're on the red or blue team (Big Red shows as red). Only you will see the result.</p>
+      <div class="nominee-grid">
+        ${activePlayers.map(p => `<button class="nominee-btn" onclick="powerInvestigate('${p.id}')">${escHtml(p.username)}</button>`).join("")}
+      </div>`;
+  }
+
+  else if (power === "pick_leader") {
+    content.innerHTML = `
+      <p style="font-size:15px">⚡ <strong style="color:var(--red)">Choose Next Leader!</strong> Pick who leads next round:</p>
+      <div class="nominee-grid">
+        ${activePlayers.map(p => `<button class="nominee-btn" onclick="powerPickLeader('${p.id}')">${escHtml(p.username)}</button>`).join("")}
+      </div>`;
   }
 }
 
 function renderLeaderDiscard() {
   const content = document.getElementById("phase-content");
   content.innerHTML = `
-    <p style="font-size:15px">You drew 3 cards. <strong>Click one to discard it.</strong> The other two go to the assistant.</p>
+    <p style="font-size:15px">You drew 3 cards. <strong>Click one to discard it.</strong></p>
     <div class="card-hand">
-      ${myHand.map((c, i) => `
-        <div class="playing-card ${c}" onclick="leaderDiscard(${i})">${c.toUpperCase()}</div>
-      `).join("")}
+      ${myHand.map((c, i) => `<div class="playing-card ${c}" onclick="leaderDiscard(${i})">${c.toUpperCase()}</div>`).join("")}
     </div>`;
 }
 
@@ -325,40 +348,22 @@ function renderAssistantPlay() {
   content.innerHTML = `
     <p style="font-size:15px">You are the assistant. <strong>Choose a card to play.</strong></p>
     <div class="card-hand">
-      ${myHand.map((c, i) => `
-        <div class="playing-card ${c}" onclick="assistantPlay(${i})">${c.toUpperCase()}</div>
-      `).join("")}
+      ${myHand.map((c, i) => `<div class="playing-card ${c}" onclick="assistantPlay(${i})">${c.toUpperCase()}</div>`).join("")}
     </div>`;
 }
 
-// ── Game Action Emitters ───────────────────────────────────────
-function nominate(nomineeId) {
-  socket.emit("nominate", { nomineeId });
-}
-
-function castVote(approve) {
-  socket.emit("vote", { approve });
-}
-
-function leaderDraw() {
-  socket.emit("leader_draw");
-}
-
+// ── Actions ────────────────────────────────────────────────────
+function nominate(id) { socket.emit("nominate", { nomineeId: id }); }
+function castVote(approve) { socket.emit("vote", { approve }); }
+function leaderDraw() { socket.emit("leader_draw"); }
 function leaderDiscard(index) {
-  myHand.splice(index, 1); // Optimistically remove from local hand
+  myHand.splice(index, 1);
   socket.emit("leader_discard", { discardIndex: index });
 }
-
 function assistantPlay(index) {
   myHand = [];
   socket.emit("assistant_play", { cardIndex: index });
 }
-
-// ── Utils ──────────────────────────────────────────────────────
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+function powerEliminate(targetId) { socket.emit("power_eliminate", { targetId }); }
+function powerInvestigate(targetId) { socket.emit("power_investigate", { targetId }); }
+function powerPickLeader(targetId) { socket.emit("power_pick_leader", { targetId }); }

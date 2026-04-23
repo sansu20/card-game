@@ -1,4 +1,3 @@
-// Team split table based on total player count
 const TEAM_SPLITS = {
   5:  { blue: 3, red: 2 },
   6:  { blue: 4, red: 2 },
@@ -18,12 +17,29 @@ function shuffle(array) {
 }
 
 function createDeck() {
-  // 6 blue cards + 11 red cards = 17 total
-  const deck = [
-    ...Array(6).fill("blue"),
-    ...Array(11).fill("red"),
-  ];
-  return shuffle(deck);
+  return shuffle([...Array(6).fill("blue"), ...Array(11).fill("red")]);
+}
+
+// Returns which power triggers for a given red card number and player count.
+// Returns null if no power.
+function getPowerForRedCard(redCardNumber, playerCount) {
+  // Universal powers
+  if (redCardNumber === 4 || redCardNumber === 5) return "eliminate";
+
+  // Player-count-specific powers
+  if (playerCount <= 6) {
+    if (redCardNumber === 3) return "peek";
+  } else if (playerCount <= 8) {
+    if (redCardNumber === 2) return "investigate";
+    if (redCardNumber === 3) return "pick_leader";
+  } else {
+    // 9-10 players
+    if (redCardNumber === 1) return "investigate";
+    if (redCardNumber === 2) return "investigate";
+    if (redCardNumber === 3) return "pick_leader";
+  }
+
+  return null;
 }
 
 function createGameState(players) {
@@ -31,46 +47,44 @@ function createGameState(players) {
   const split = TEAM_SPLITS[count];
   if (!split) throw new Error(`Invalid player count: ${count}`);
 
-  // Shuffle players to randomly assign teams
   const shuffledPlayers = shuffle(players);
 
-  // Assign roles
   const assignedPlayers = shuffledPlayers.map((player, index) => {
     let team, role;
     if (index < split.blue) {
-      team = "blue";
-      role = "blue";
+      team = "blue"; role = "blue";
     } else if (index === split.blue) {
-      // First red player is Big Red
-      team = "red";
-      role = "bigred";
+      team = "red"; role = "bigred";
     } else {
-      team = "red";
-      role = "red";
+      team = "red"; role = "red";
     }
     return { ...player, team, role };
   });
 
-  // Leader order is the shuffled player order (clockwise circle)
-  // Skip eliminated players when advancing
-  const leaderOrder = [...assignedPlayers];
-
   return {
     players: assignedPlayers,
-    leaderOrder,
+    leaderOrder: [...assignedPlayers],
     currentLeaderIndex: 0,
     deck: createDeck(),
+    discardPile: [],
     drawnCards: [],
     playedCards: [],
     blueCardsPlayed: 0,
     redCardsPlayed: 0,
+    redCardsBeforeThisRound: 0,  // captured before playing a card, for Big Red win check
     failedVoteCounter: 0,
-    eliminatedPlayers: [], // array of socket IDs
-    phase: "nominate",     // nominate | vote | leader_draw | leader_discard | assistant_play | game_over
+    eliminatedPlayers: [],
+    phase: "nominate",  // nominate | vote | leader_draw | leader_discard | assistant_play | power | game_over
+    pendingPower: null, // { type: 'eliminate' | 'peek' | 'investigate' | 'pick_leader' }
     nominee: null,
     votes: {},
     winner: null,
+    totalPlayers: count,
+    prevLeaderId: null,       // for term limits
+    prevAssistantId: null,    // for term limits
+    ineligibleAssistants: [], // computed each round
+    clockwiseResumeIndex: null, // set when pick_leader is used; next round resumes from here
   };
 }
 
-module.exports = { createGameState };
+module.exports = { createGameState, getPowerForRedCard, shuffle };
