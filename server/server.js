@@ -2,7 +2,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
-const { createGameState, getPowerForRedCard, shuffle } = require("./gameState");
+const { createGameState, getPowerForRedCard, getPowerForBlueCard, shuffle } = require("./gameState");
 
 const app = express();
 const server = http.createServer(app);
@@ -22,7 +22,12 @@ function broadcastLobby(roomCode) {
   io.to(roomCode).emit("lobby_update", {
     players: room.players.map((p) => ({ id: p.id, username: p.username })),
     roomCode,
+    mode: room.mode || "normal",
   });
+}
+
+function allPlayersForReveal(gs) {
+  return gs.players.map(p => ({ id: p.id, username: p.username, role: p.role, team: p.team }));
 }
 
 function getPublicState(gs) {
@@ -42,21 +47,27 @@ function getPublicState(gs) {
     votes: gs.votes,
     winner: gs.winner || null,
     totalPlayers: gs.totalPlayers,
-    // Send ineligible IDs so client can grey them out
     ineligibleAssistants: gs.ineligibleAssistants || [],
+    mode: gs.mode,
   };
 }
 
 function getPrivateInfo(gs, playerId) {
   const player = gs.players.find((p) => p.id === playerId);
   if (!player) return {};
-  const info = { team: player.team, role: player.role };
+  const info = { team: player.team, role: player.role, mode: gs.mode };
+
   if (player.role === "bigred") {
     const redPlayers = gs.players.filter((p) => p.team === "red");
-    if (redPlayers.length === 2) {
+    if (redPlayers.length === 2 && !gs.isChaos) {
       info.knownTeammates = redPlayers
         .filter((p) => p.id !== playerId)
         .map((p) => ({ id: p.id, username: p.username }));
+    } else if (gs.isChaos) {
+      // In chaos, KC knows all red teammates (but not double agent)
+      info.knownTeammates = redPlayers
+        .filter((p) => p.id !== playerId)
+        .map((p) => ({ id: p.id, username: p.username, role: p.role }));
     } else {
       info.knownTeammates = [];
     }
@@ -64,9 +75,15 @@ function getPrivateInfo(gs, playerId) {
     info.knownTeammates = gs.players
       .filter((p) => p.team === "red")
       .map((p) => ({ id: p.id, username: p.username, role: p.role }));
+  } else if (player.role === "doubleagent") {
+    // Double agent knows everyone
+    info.knownTeammates = gs.players
+      .filter((p) => p.id !== playerId)
+      .map((p) => ({ id: p.id, username: p.username, role: p.role, team: p.team }));
   } else {
     info.knownTeammates = [];
   }
+
   return info;
 }
 
@@ -88,7 +105,6 @@ function checkAndReshuffle(gs, roomCode) {
   }
 }
 
-// Advance clockwise, skipping eliminated players
 function advanceLeader(gs) {
   let next = (gs.currentLeaderIndex + 1) % gs.leaderOrder.length;
   while (gs.eliminatedPlayers.includes(gs.leaderOrder[next].id)) {
@@ -97,40 +113,55 @@ function advanceLeader(gs) {
   gs.currentLeaderIndex = next;
 }
 
-function checkWinConditions(roomCode) {
-  const room = rooms[roomCode];
-  if (!room || !room.gameState) return;
-  const gs = room.gameState;
-  if (gs.blueCardsPlayed >= 5) {
-    gs.winner = "blue"; gs.phase = "game_over";
-    io.to(roomCode).emit("game_over", { winner: "blue", reason: "5 Agent cards have been played — Agents win!", allPlayers: gs.players.map(p => ({ id: p.id, username: p.username, role: p.role, team: p.team })) });
-  } else if (gs.redCardsPlayed >= 6) {
-    gs.winner = "red"; gs.phase = "game_over";
-    io.to(roomCode).emit("game_over", { winner: "red", reason: "6 Syndicate cards have been played — Syndicate wins!", allPlayers: gs.players.map(p => ({ id: p.id, username: p.username, role: p.role, team: p.team })) });
-  }
-}
-
-// Compute which players are ineligible to be nominated as assistant this round.
-// For 5 players: only previous assistant is ineligible.
-// For 6+ players: previous leader AND previous assistant are both ineligible.
 function computeIneligible(gs) {
   const ineligible = [];
   if (gs.prevAssistantId) ineligible.push(gs.prevAssistantId);
   if (gs.totalPlayers >= 6 && gs.prevLeaderId) ineligible.push(gs.prevLeaderId);
-  // Also always exclude eliminated players (handled in UI separately)
   return ineligible;
 }
 
-function resolveCardPlayed(roomCode, playedCard) {
+function emitGameOver(roomCode, winner, reason) {
+  const room = rooms[roomCode];
+  const gs = room.gameState;
+  gs.winner = winner;
+  gs.phase = "game_over";
+  io.to(roomCode).emit("game_over", { winner, reason, allPlayers: allPlayersForReveal(gs) });
+}
+
+function checkWinConditions(roomCode) {
+  const room = rooms[roomCode];
+  if (!room || !room.gameState) return;
+  const gs = room.gameState;
+
+  // Double agent wins if all cards for one side are placed and they're still alive
+  if (gs.isChaos) {
+    const doubleAgent = gs.players.find(p => p.role === "doubleagent");
+    const daAlive = doubleAgent && !gs.eliminatedPlayers.includes(doubleAgent.id);
+    if (gs.blueCardsPlayed >= 5 && daAlive) {
+      emitGameOver(roomCode, "doubleagent", `All Agent cards played — ${doubleAgent.username} (Double Agent) survived and wins!`);
+      return;
+    }
+    if (gs.redCardsPlayed >= 6 && daAlive) {
+      emitGameOver(roomCode, "doubleagent", `All Syndicate cards played — ${doubleAgent.username} (Double Agent) survived and wins!`);
+      return;
+    }
+    // If DA is eliminated, normal win conditions apply
+    if (gs.blueCardsPlayed >= 5) { emitGameOver(roomCode, "blue", "5 Agent cards have been played — Agents win!"); return; }
+    if (gs.redCardsPlayed >= 6) { emitGameOver(roomCode, "red", "6 Syndicate cards have been played — Syndicate wins!"); return; }
+  } else {
+    if (gs.blueCardsPlayed >= 5) { emitGameOver(roomCode, "blue", "5 Agent cards have been played — Agents win!"); return; }
+    if (gs.redCardsPlayed >= 6) { emitGameOver(roomCode, "red", "6 Syndicate cards have been played — Syndicate wins!"); return; }
+  }
+}
+
+function resolveCardPlayed(roomCode, card) {
   const room = rooms[roomCode];
   const gs = room.gameState;
 
-  // Big Red win condition: 3+ red cards must have been on the table BEFORE this card was played.
-  // gs.redCardsBeforeThisRound is captured in the assistant_play handler before incrementing.
+  // King Crimson win condition: 3+ red cards on table BEFORE this round
   const bigRed = gs.players.find((p) => p.role === "bigred");
   if (gs.redCardsBeforeThisRound >= 3 && gs.nominee?.id === bigRed?.id) {
-    gs.winner = "red"; gs.phase = "game_over";
-    io.to(roomCode).emit("game_over", { winner: "red", reason: "King Crimson was the assistant with 3+ Syndicate cards already in play — Syndicate wins!", allPlayers: gs.players.map(p => ({ id: p.id, username: p.username, role: p.role, team: p.team })) });
+    emitGameOver(roomCode, "red", "King Crimson was the assistant with 3+ Syndicate cards already in play — Syndicate wins!");
     broadcastGameState(roomCode);
     return;
   }
@@ -138,29 +169,43 @@ function resolveCardPlayed(roomCode, playedCard) {
   checkWinConditions(roomCode);
   if (gs.phase === "game_over") { broadcastGameState(roomCode); return; }
 
-  // Check if a red card power triggers
-  if (playedCard === "red") {
+  // Check red card powers
+  if (card === "red") {
     const power = getPowerForRedCard(gs.redCardsPlayed, gs.totalPlayers);
     if (power) {
       gs.phase = "power";
       gs.pendingPower = { type: power };
-      const currentLeader = gs.leaderOrder[gs.currentLeaderIndex];
-
+      const leader = gs.leaderOrder[gs.currentLeaderIndex];
       if (power === "peek") {
         const peekCards = gs.deck.slice(0, 3);
-        io.to(currentLeader.id).emit("power_peek", { cards: peekCards });
-        io.to(roomCode).emit("chat_msg", { system: true, text: `A power was triggered! ${currentLeader.username} is secretly examining the top 3 cards of the deck.` });
-        // Don't auto-finish — wait for leader to click "Done" (power_peek_done event)
+        io.to(leader.id).emit("power_peek", { cards: peekCards });
+        io.to(roomCode).emit("chat_msg", { system: true, text: `A power was triggered! ${leader.username} is secretly examining the top 3 cards of the deck.` });
         broadcastGameState(roomCode);
         return;
       }
-
-      const powerMessages = {
-        eliminate: `A power was triggered! ${currentLeader.username} must eliminate a player.`,
-        investigate: `A power was triggered! ${currentLeader.username} is secretly investigating a player's identity.`,
-        pick_leader: `A power was triggered! ${currentLeader.username} gets to choose the next leader.`,
+      const msgs = {
+        eliminate: `A power was triggered! ${leader.username} must eliminate a player.`,
+        investigate: `A power was triggered! ${leader.username} is secretly investigating a player.`,
+        pick_leader: `A power was triggered! ${leader.username} gets to choose the next leader.`,
       };
-      io.to(roomCode).emit("chat_msg", { system: true, text: powerMessages[power] });
+      io.to(roomCode).emit("chat_msg", { system: true, text: msgs[power] });
+      broadcastGameState(roomCode);
+      return;
+    }
+  }
+
+  // Check blue card powers (chaos mode only)
+  if (card === "blue" && gs.isChaos) {
+    const power = getPowerForBlueCard(gs.blueCardsPlayed, gs.isChaos);
+    if (power) {
+      gs.phase = "power";
+      gs.pendingPower = { type: power };
+      const leader = gs.leaderOrder[gs.currentLeaderIndex];
+      const msgs = {
+        chaos_investigate: `A power was triggered! ${leader.username} is secretly investigating a player.`,
+        chaos_interrogate: `A power was triggered! ${leader.username} is interrogating a player.`,
+      };
+      io.to(roomCode).emit("chat_msg", { system: true, text: msgs[power] });
       broadcastGameState(roomCode);
       return;
     }
@@ -169,21 +214,16 @@ function resolveCardPlayed(roomCode, playedCard) {
   finishRound(roomCode, false);
 }
 
-// finishRound: advance clockwise as normal.
-// pickLeaderOverride: if true, currentLeaderIndex has already been set to the picked player,
-// so we DON'T advance — but we DO store the clockwise position so next round continues correctly.
 function finishRound(roomCode, pickLeaderUsed) {
   const room = rooms[roomCode];
   const gs = room.gameState;
 
-  // Store term limits (pick_leader handler sets these itself)
   if (!pickLeaderUsed) {
     gs.prevLeaderId = gs.leaderOrder[gs.currentLeaderIndex].id;
     gs.prevAssistantId = gs.nominee ? gs.nominee.id : null;
   }
 
   if (!pickLeaderUsed) {
-    // If resuming after a pick_leader turn, continue from the stored clockwise position
     if (gs.clockwiseResumeIndex !== null) {
       gs.currentLeaderIndex = gs.clockwiseResumeIndex;
       gs.clockwiseResumeIndex = null;
@@ -201,7 +241,9 @@ function finishRound(roomCode, pickLeaderUsed) {
   gs.drawnCards = [];
   gs.failedVoteCounter = 0;
   gs.pendingPower = null;
+  gs.pendingInvestigateResult = null;
   gs.redCardsBeforeThisRound = 0;
+  gs.blueCardsBeforeThisRound = 0;
   gs.ineligibleAssistants = computeIneligible(gs);
   checkAndReshuffle(gs, roomCode);
   broadcastGameState(roomCode);
@@ -210,12 +252,10 @@ function finishRound(roomCode, pickLeaderUsed) {
 io.on("connection", (socket) => {
   console.log(`Socket connected: ${socket.id}`);
 
-  // CREATE ROOM
   socket.on("create_room", ({ username }) => {
     const roomCode = generateRoomCode();
-    rooms[roomCode] = { players: [], gameStarted: false, gameState: null };
-    const player = { id: socket.id, username };
-    rooms[roomCode].players.push(player);
+    rooms[roomCode] = { players: [], gameStarted: false, gameState: null, mode: "normal" };
+    rooms[roomCode].players.push({ id: socket.id, username });
     socket.join(roomCode);
     socket.data.roomCode = roomCode;
     socket.data.username = username;
@@ -223,14 +263,12 @@ io.on("connection", (socket) => {
     broadcastLobby(roomCode);
   });
 
-  // JOIN ROOM
   socket.on("join_room", ({ username, roomCode }) => {
     const room = rooms[roomCode];
     if (!room) { socket.emit("error_msg", { message: "Room not found." }); return; }
     if (room.gameStarted) { socket.emit("error_msg", { message: "Game already in progress." }); return; }
     if (room.players.length >= 10) { socket.emit("error_msg", { message: "Room is full (max 10 players)." }); return; }
-    const player = { id: socket.id, username };
-    room.players.push(player);
+    room.players.push({ id: socket.id, username });
     socket.join(roomCode);
     socket.data.roomCode = roomCode;
     socket.data.username = username;
@@ -238,7 +276,16 @@ io.on("connection", (socket) => {
     broadcastLobby(roomCode);
   });
 
-  // START GAME
+  // Host can toggle mode before game starts
+  socket.on("set_mode", ({ mode }) => {
+    const roomCode = socket.data.roomCode;
+    const room = rooms[roomCode];
+    if (!room || room.gameStarted) return;
+    if (room.players[0].id !== socket.id) return;
+    room.mode = mode;
+    broadcastLobby(roomCode);
+  });
+
   socket.on("start_game", () => {
     const roomCode = socket.data.roomCode;
     const room = rooms[roomCode];
@@ -246,7 +293,7 @@ io.on("connection", (socket) => {
     if (room.players.length < 5) { socket.emit("error_msg", { message: "Need at least 5 players to start." }); return; }
     if (room.players[0].id !== socket.id) { socket.emit("error_msg", { message: "Only the host can start the game." }); return; }
     room.gameStarted = true;
-    room.gameState = createGameState(room.players);
+    room.gameState = createGameState(room.players, room.mode || "normal");
     room.players.forEach((player) => {
       io.to(player.id).emit("game_started", {
         publicState: getPublicState(room.gameState),
@@ -255,7 +302,6 @@ io.on("connection", (socket) => {
     });
   });
 
-  // NOMINATE
   socket.on("nominate", ({ nomineeId }) => {
     const roomCode = socket.data.roomCode;
     const room = rooms[roomCode];
@@ -264,14 +310,9 @@ io.on("connection", (socket) => {
     const currentLeader = gs.leaderOrder[gs.currentLeaderIndex];
     if (currentLeader.id !== socket.id) { socket.emit("error_msg", { message: "You are not the current leader." }); return; }
     if (gs.phase !== "nominate") { socket.emit("error_msg", { message: "Not in nomination phase." }); return; }
-
-    // Check eligibility
-    if (gs.ineligibleAssistants.includes(nomineeId)) {
-      socket.emit("error_msg", { message: "That player is ineligible to be assistant this round." }); return;
-    }
+    if (gs.ineligibleAssistants.includes(nomineeId)) { socket.emit("error_msg", { message: "That player is ineligible this round." }); return; }
     const nominee = gs.players.find((p) => p.id === nomineeId && !gs.eliminatedPlayers.includes(nomineeId));
     if (!nominee) { socket.emit("error_msg", { message: "Invalid nominee." }); return; }
-
     gs.nominee = nominee;
     gs.phase = "vote";
     gs.votes = {};
@@ -279,7 +320,6 @@ io.on("connection", (socket) => {
     io.to(roomCode).emit("chat_msg", { system: true, text: `${currentLeader.username} nominated ${nominee.username} as assistant.` });
   });
 
-  // VOTE
   socket.on("vote", ({ approve }) => {
     const roomCode = socket.data.roomCode;
     const room = rooms[roomCode];
@@ -293,12 +333,10 @@ io.on("connection", (socket) => {
       const yesVotes = Object.values(gs.votes).filter(Boolean).length;
       const passed = yesVotes > activePlayers.length / 2;
       if (passed) {
-        // Check King Crimson win condition: if KC is elected assistant with 3+ red cards already in play
+        // King Crimson auto-win: elected assistant with 3+ red cards already on table
         const bigRed = gs.players.find((p) => p.role === "bigred");
         if (gs.redCardsPlayed >= 3 && gs.nominee?.id === bigRed?.id) {
-          gs.winner = "red"; gs.phase = "game_over";
-          const allPlayers = gs.players.map(p => ({ id: p.id, username: p.username, role: p.role, team: p.team }));
-          io.to(roomCode).emit("game_over", { winner: "red", reason: "King Crimson was elected assistant with 3+ Syndicate cards in play — Syndicate wins!", allPlayers});
+          emitGameOver(roomCode, "red", "King Crimson was elected assistant with 3+ Syndicate cards in play — Syndicate wins!");
           broadcastGameState(roomCode);
           return;
         }
@@ -316,7 +354,6 @@ io.on("connection", (socket) => {
           io.to(roomCode).emit("chat_msg", { system: true, text: `3 failed votes! Top card auto-played: ${card.toUpperCase()}.` });
           checkWinConditions(roomCode);
           if (gs.phase !== "game_over") {
-            // Auto-played cards don't trigger powers or update term limits
             checkAndReshuffle(gs, roomCode);
             advanceLeader(gs);
             gs.phase = "nominate";
@@ -336,7 +373,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // LEADER DRAWS 3 CARDS
   socket.on("leader_draw", () => {
     const roomCode = socket.data.roomCode;
     const room = rooms[roomCode];
@@ -352,7 +388,6 @@ io.on("connection", (socket) => {
     io.to(roomCode).emit("chat_msg", { system: true, text: `${currentLeader.username} drew 3 cards and must discard one.` });
   });
 
-  // LEADER DISCARDS 1 CARD
   socket.on("leader_discard", ({ discardIndex }) => {
     const roomCode = socket.data.roomCode;
     const room = rooms[roomCode];
@@ -371,7 +406,6 @@ io.on("connection", (socket) => {
     io.to(roomCode).emit("chat_msg", { system: true, text: `${currentLeader.username} discarded a card. ${gs.nominee.username} must choose a card to play.` });
   });
 
-  // ASSISTANT PLAYS A CARD
   socket.on("assistant_play", ({ cardIndex }) => {
     const roomCode = socket.data.roomCode;
     const room = rooms[roomCode];
@@ -380,22 +414,29 @@ io.on("connection", (socket) => {
     if (gs.nominee?.id !== socket.id) { socket.emit("error_msg", { message: "You are not the assistant." }); return; }
     if (gs.phase !== "assistant_play") { socket.emit("error_msg", { message: "Not in play phase." }); return; }
     if (cardIndex < 0 || cardIndex >= gs.drawnCards.length) { socket.emit("error_msg", { message: "Invalid card index." }); return; }
-
     const card = gs.drawnCards[cardIndex];
     const otherCard = gs.drawnCards[cardIndex === 0 ? 1 : 0];
-
-    // Capture red card count BEFORE this card is added — used for Big Red win condition check
     gs.redCardsBeforeThisRound = gs.redCardsPlayed;
-
+    gs.blueCardsBeforeThisRound = gs.blueCardsPlayed;
     gs.playedCards.push(card);
     if (card === "blue") gs.blueCardsPlayed++;
     else gs.redCardsPlayed++;
-
     gs.discardPile.push(otherCard);
     gs.drawnCards = [];
-
     io.to(roomCode).emit("chat_msg", { system: true, text: `${gs.nominee.username} played a ${card.toUpperCase()} card.` });
     resolveCardPlayed(roomCode, card);
+  });
+
+  // POWER: PEEK — leader clicks Done to finish round
+  socket.on("power_peek_done", () => {
+    const roomCode = socket.data.roomCode;
+    const room = rooms[roomCode];
+    if (!room || !room.gameState) return;
+    const gs = room.gameState;
+    const currentLeader = gs.leaderOrder[gs.currentLeaderIndex];
+    if (currentLeader.id !== socket.id) return;
+    if (gs.phase !== "power" || gs.pendingPower?.type !== "peek") return;
+    finishRound(roomCode, false);
   });
 
   // POWER: ELIMINATE
@@ -410,21 +451,25 @@ io.on("connection", (socket) => {
     if (targetId === socket.id) { socket.emit("error_msg", { message: "You cannot eliminate yourself." }); return; }
     const target = gs.players.find((p) => p.id === targetId && !gs.eliminatedPlayers.includes(targetId));
     if (!target) { socket.emit("error_msg", { message: "Invalid target." }); return; }
-
     gs.eliminatedPlayers.push(targetId);
-    io.to(roomCode).emit("chat_msg", { system: true, text: `${currentLeader.username} eliminated ${target.username}. Their identity remains secret.` });
 
     if (target.role === "bigred") {
-      gs.winner = "blue"; gs.phase = "game_over";
-      io.to(roomCode).emit("game_over", { winner: "blue", reason: `${target.username} was King Crimson! Agents win!`, allPlayers: gs.players.map(p => ({ id: p.id, username: p.username, role: p.role, team: p.team })) });
+      io.to(roomCode).emit("chat_msg", { system: true, text: `${currentLeader.username} eliminated ${target.username} — they were King Crimson! Agents win!` });
+      emitGameOver(roomCode, "blue", `${target.username} was King Crimson! Agents win!`);
       broadcastGameState(roomCode);
       return;
     }
-
+    if (target.role === "doubleagent") {
+      io.to(roomCode).emit("chat_msg", { system: true, text: `${currentLeader.username} eliminated ${target.username} — they were the Double Agent! Their cover is blown.` });
+      io.to(roomCode).emit("double_agent_revealed", { username: target.username });
+    } else {
+      io.to(roomCode).emit("chat_msg", { system: true, text: `${currentLeader.username} eliminated ${target.username}. Their identity remains secret.` });
+    }
     finishRound(roomCode, false);
   });
 
-  // POWER: INVESTIGATE
+  // POWER: INVESTIGATE (normal mode — reveals red or blue)
+  // Leader picks target, result is sent privately, leader clicks Done to finish round
   socket.on("power_investigate", ({ targetId }) => {
     const roomCode = socket.data.roomCode;
     const room = rooms[roomCode];
@@ -435,17 +480,61 @@ io.on("connection", (socket) => {
     if (gs.phase !== "power" || gs.pendingPower?.type !== "investigate") { socket.emit("error_msg", { message: "No investigation power active." }); return; }
     const target = gs.players.find((p) => p.id === targetId && !gs.eliminatedPlayers.includes(targetId));
     if (!target) { socket.emit("error_msg", { message: "Invalid target." }); return; }
+    // King Crimson and red both show as "red"
+    const revealedTeam = target.team === "blue" ? "blue" : "red";
+    socket.emit("power_investigate_result", { username: target.username, result: revealedTeam, mode: "normal" });
+    io.to(roomCode).emit("chat_msg", { system: true, text: `${currentLeader.username} secretly investigated ${target.username}.` });
+    // Store that we're waiting for leader to dismiss before finishing round
+    gs.pendingInvestigateResult = true;
+    broadcastGameState(roomCode);
+  });
 
-    // Big Red shows as "red" — never reveals "bigred"
-    socket.emit("power_investigate_result", { username: target.username, team: target.team });
-    io.to(roomCode).emit("chat_msg", { system: true, text: `${currentLeader.username} secretly investigated a player's identity.` });
+  // POWER: CHAOS INVESTIGATE (chaos mode — reveals "blue" or "not blue")
+  socket.on("power_chaos_investigate", ({ targetId }) => {
+    const roomCode = socket.data.roomCode;
+    const room = rooms[roomCode];
+    if (!room || !room.gameState) return;
+    const gs = room.gameState;
+    const currentLeader = gs.leaderOrder[gs.currentLeaderIndex];
+    if (currentLeader.id !== socket.id) { socket.emit("error_msg", { message: "You are not the current leader." }); return; }
+    const validPowers = ["chaos_investigate", "chaos_interrogate"];
+    if (gs.phase !== "power" || !validPowers.includes(gs.pendingPower?.type)) { socket.emit("error_msg", { message: "No investigation power active." }); return; }
+    const target = gs.players.find((p) => p.id === targetId && !gs.eliminatedPlayers.includes(targetId));
+    if (!target) { socket.emit("error_msg", { message: "Invalid target." }); return; }
+
+    const isBlue = target.role === "blue";
+    const result = isBlue ? "blue" : "not blue";
+
+    // Interrogate: if double agent, eliminate them and reveal
+    if (gs.pendingPower.type === "chaos_interrogate" && target.role === "doubleagent") {
+      gs.eliminatedPlayers.push(targetId);
+      socket.emit("power_investigate_result", { username: target.username, result: "double agent", mode: "chaos_interrogate" });
+      io.to(roomCode).emit("chat_msg", { system: true, text: `${currentLeader.username} interrogated ${target.username} — they were the Double Agent! Eliminated and revealed!` });
+      io.to(roomCode).emit("double_agent_revealed", { username: target.username });
+      gs.pendingInvestigateResult = true;
+      broadcastGameState(roomCode);
+      return;
+    }
+
+    socket.emit("power_investigate_result", { username: target.username, result, mode: "chaos" });
+    io.to(roomCode).emit("chat_msg", { system: true, text: `${currentLeader.username} secretly investigated ${target.username}.` });
+    gs.pendingInvestigateResult = true;
+    broadcastGameState(roomCode);
+  });
+
+  // Leader dismisses investigate result — finish the round
+  socket.on("power_investigate_done", () => {
+    const roomCode = socket.data.roomCode;
+    const room = rooms[roomCode];
+    if (!room || !room.gameState) return;
+    const gs = room.gameState;
+    const currentLeader = gs.leaderOrder[gs.currentLeaderIndex];
+    if (currentLeader.id !== socket.id) return;
+    if (!gs.pendingInvestigateResult) return;
     finishRound(roomCode, false);
   });
 
   // POWER: PICK LEADER
-  // No term-limit restrictions apply here.
-  // After the picked leader's turn, clockwise rotation resumes from the CURRENT leader's
-  // position (not the picked player's), so we store the clockwise next index separately.
   socket.on("power_pick_leader", ({ targetId }) => {
     const roomCode = socket.data.roomCode;
     const room = rooms[roomCode];
@@ -454,62 +543,38 @@ io.on("connection", (socket) => {
     const currentLeader = gs.leaderOrder[gs.currentLeaderIndex];
     if (currentLeader.id !== socket.id) { socket.emit("error_msg", { message: "You are not the current leader." }); return; }
     if (gs.phase !== "power" || gs.pendingPower?.type !== "pick_leader") { socket.emit("error_msg", { message: "No pick leader power active." }); return; }
-
     const targetIndex = gs.leaderOrder.findIndex((p) => p.id === targetId && !gs.eliminatedPlayers.includes(targetId));
     if (targetIndex === -1) { socket.emit("error_msg", { message: "Invalid target." }); return; }
-
     const target = gs.leaderOrder[targetIndex];
-
-    // Compute what the clockwise-next index WOULD have been from the current leader.
-    // After the picked leader's turn, rotation resumes from there.
     let clockwiseNext = (gs.currentLeaderIndex + 1) % gs.leaderOrder.length;
     while (gs.eliminatedPlayers.includes(gs.leaderOrder[clockwiseNext].id)) {
       clockwiseNext = (clockwiseNext + 1) % gs.leaderOrder.length;
     }
     gs.clockwiseResumeIndex = clockwiseNext;
-
-    // Set picked player as current leader
     gs.currentLeaderIndex = targetIndex;
-
-    io.to(roomCode).emit("chat_msg", { system: true, text: `${currentLeader.username} chose ${target.username} as the next leader.` });
-
-    // Store term limits: the person who used pick_leader was the "prev leader",
-    // and the current nominee was the "prev assistant"
     gs.prevLeaderId = currentLeader.id;
     gs.prevAssistantId = gs.nominee ? gs.nominee.id : null;
-
+    io.to(roomCode).emit("chat_msg", { system: true, text: `${currentLeader.username} chose ${target.username} as the next leader.` });
     gs.phase = "nominate";
     gs.nominee = null;
     gs.votes = {};
     gs.drawnCards = [];
     gs.failedVoteCounter = 0;
     gs.pendingPower = null;
+    gs.pendingInvestigateResult = null;
     gs.redCardsBeforeThisRound = 0;
+    gs.blueCardsBeforeThisRound = 0;
     gs.ineligibleAssistants = computeIneligible(gs);
     checkAndReshuffle(gs, roomCode);
     broadcastGameState(roomCode);
   });
 
-  // POWER: PEEK DONE (leader acknowledges they've seen the cards)
-  socket.on("power_peek_done", () => {
-    const roomCode = socket.data.roomCode;
-    const room = rooms[roomCode];
-    if (!room || !room.gameState) return;
-    const gs = room.gameState;
-    const currentLeader = gs.leaderOrder[gs.currentLeaderIndex];
-    if (currentLeader.id !== socket.id) return;
-    if (gs.phase !== "power" || gs.pendingPower?.type !== "peek") return;
-    finishRound(roomCode, false);
-  });
-
-  // CHAT
   socket.on("chat_msg", ({ text }) => {
     const roomCode = socket.data.roomCode;
     if (!roomCode) return;
     io.to(roomCode).emit("chat_msg", { system: false, username: socket.data.username, text });
   });
 
-  // DISCONNECT
   socket.on("disconnect", () => {
     const roomCode = socket.data.roomCode;
     if (!roomCode || !rooms[roomCode]) return;

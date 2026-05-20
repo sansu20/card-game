@@ -9,6 +9,7 @@
     :root {
       --red: #c0392b; --red-dark: #922b21; --red-glow: rgba(192,57,43,0.4);
       --blue: #2471a3; --blue-dark: #1a5276; --blue-glow: rgba(36,113,163,0.4);
+      --gold: #d4ac0d; --gold-glow: rgba(212,172,13,0.4);
       --bg: #0d0d0d; --surface: #161616; --surface2: #1e1e1e;
       --border: #2a2a2a; --text: #f0f0f0; --muted: #888; --radius: 10px;
     }
@@ -34,6 +35,7 @@
     button:disabled { opacity: 0.4; cursor: not-allowed; }
     .btn-red { background: var(--red); color: #fff; }
     .btn-blue { background: var(--blue); color: #fff; }
+    .btn-gold { background: var(--gold); color: #000; }
     .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 14px; }
     .btn-ghost:hover { border-color: var(--text); color: var(--text); opacity: 1; }
     .divider { border: none; border-top: 1px solid var(--border); }
@@ -51,11 +53,21 @@
     .player-item .host-tag { margin-left: auto; font-size: 11px; color: var(--muted); background: var(--border); padding: 2px 7px; border-radius: 4px; }
     .panel-title { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 10px; }
 
+    /* Mode toggle */
+    .mode-toggle { display: flex; gap: 8px; }
+    .mode-btn { flex: 1; padding: 10px; font-size: 14px; font-family: 'Bebas Neue', sans-serif; letter-spacing: 1px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; transition: all 0.2s; }
+    .mode-btn.active-normal { border-color: var(--blue); color: #7fb3d3; background: rgba(36,113,163,0.1); }
+    .mode-btn.active-chaos { border-color: var(--gold); color: var(--gold); background: rgba(212,172,13,0.1); }
+    .mode-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
     /* GAME */
     #screen-game { justify-content: flex-start; padding: 0; }
     .game-layout { display: grid; grid-template-columns: 1fr 280px; grid-template-rows: auto 1fr; width: 100%; max-width: 1100px; margin: 0 auto; padding: 20px; gap: 16px; }
     .game-topbar { grid-column: 1/-1; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 20px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
     .game-title { font-size: 22px; color: var(--red); }
+    .mode-badge { font-size: 11px; padding: 3px 9px; border-radius: 20px; font-family: 'Bebas Neue', sans-serif; letter-spacing: 1px; }
+    .mode-badge.chaos { background: rgba(212,172,13,0.15); border: 1px solid var(--gold); color: var(--gold); }
+    .mode-badge.normal { background: rgba(36,113,163,0.15); border: 1px solid var(--blue); color: #7fb3d3; }
     .score-block { display: flex; gap: 12px; margin-left: auto; }
     .score-pill { display: flex; align-items: center; gap: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 14px; font-weight: 600; }
     .score-pill.blue { border-color: var(--blue); color: #7fb3d3; }
@@ -65,20 +77,23 @@
     .role-card { border-radius: var(--radius); padding: 16px 20px; border: 1px solid; }
     .role-card.blue { background: rgba(36,113,163,0.12); border-color: var(--blue); }
     .role-card.red { background: rgba(192,57,43,0.12); border-color: var(--red); }
+    .role-card.doubleagent { background: rgba(212,172,13,0.12); border-color: var(--gold); }
     .role-card .role-label { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); }
     .role-card .role-name { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 1px; margin: 2px 0; }
     .role-card.blue .role-name { color: #7fb3d3; }
     .role-card.red .role-name { color: #e59a94; }
+    .role-card.doubleagent .role-name { color: var(--gold); }
     .role-card .role-info { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
     .known-players { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
     .known-tag { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; font-size: 12px; }
     .known-tag.bigred { border-color: var(--red); color: #e59a94; }
+    .known-tag.doubleagent { border-color: var(--gold); color: var(--gold); }
     .phase-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; flex: 1; }
     .phase-title { font-size: 13px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 12px; }
     .phase-content { display: flex; flex-direction: column; gap: 12px; }
     .nominee-grid { display: flex; flex-wrap: wrap; gap: 8px; }
     .nominee-btn { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; padding: 8px 14px; width: auto; transition: border-color 0.2s, background 0.2s; }
-    .nominee-btn:hover { border-color: var(--red); background: rgba(192,57,43,0.1); opacity: 1; }
+    .nominee-btn:hover:not(:disabled) { border-color: var(--red); background: rgba(192,57,43,0.1); opacity: 1; }
     .vote-buttons { display: flex; gap: 10px; }
     .vote-buttons button { flex: 1; }
     .card-hand { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -101,6 +116,7 @@
     .player-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
     .player-dot.blue { background: var(--blue); }
     .player-dot.red { background: var(--red); }
+    .player-dot.doubleagent { background: var(--gold); }
     .player-dot.unknown { background: var(--muted); }
     .chat-panel { flex: 1; display: flex; flex-direction: column; }
     .chat-messages { overflow-y: auto; max-height: 240px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; padding-right: 4px; }
@@ -117,11 +133,16 @@
     .fail-dot.filled { background: var(--red); border-color: var(--red); }
 
     /* GAME OVER */
-    #screen-gameover { gap: 24px; text-align: center; }
+    #screen-gameover { gap: 24px; text-align: center; padding: 40px 24px; }
     .gameover-title { font-size: 80px; line-height: 1; }
     .gameover-title.blue { color: var(--blue); text-shadow: 0 0 40px var(--blue-glow); }
     .gameover-title.red { color: var(--red); text-shadow: 0 0 40px var(--red-glow); }
-    .gameover-reason { color: var(--muted); font-size: 16px; max-width: 400px; }
+    .gameover-title.doubleagent { color: var(--gold); text-shadow: 0 0 40px var(--gold-glow); }
+    .gameover-reason { color: var(--muted); font-size: 16px; max-width: 500px; }
+
+    /* Alert banner */
+    .alert-banner { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(212,172,13,0.15); border: 1px solid var(--gold); color: var(--gold); padding: 12px 20px; border-radius: 8px; font-size: 14px; z-index: 999; display: none; text-align: center; max-width: 400px; }
+    .alert-banner.visible { display: block; }
 
     @media (max-width: 700px) {
       .game-layout { grid-template-columns: 1fr; }
@@ -129,6 +150,8 @@
   </style>
 </head>
 <body>
+
+<div class="alert-banner" id="alert-banner"></div>
 
 <!-- LANDING -->
 <div id="screen-landing" class="screen active">
@@ -154,6 +177,14 @@
       <div class="label">Room Code</div>
       <div class="code" id="lobby-code">-----</div>
     </div>
+    <div id="mode-toggle-section">
+      <div class="panel-title">Game Mode (Host Only)</div>
+      <div class="mode-toggle">
+        <button class="mode-btn active-normal" id="mode-btn-normal" onclick="setMode('normal')">Normal</button>
+        <button class="mode-btn" id="mode-btn-chaos" onclick="setMode('chaos')">⚡ Chaos</button>
+      </div>
+      <p class="mode-desc" id="mode-desc">Standard rules — Agents vs. Syndicate.</p>
+    </div>
     <div>
       <div class="panel-title">Players (<span id="lobby-count">0</span>/10)</div>
       <div class="player-list" id="lobby-player-list"></div>
@@ -169,6 +200,7 @@
   <div class="game-layout">
     <div class="game-topbar">
       <span class="game-title">OPERATION SCARLET</span>
+      <span class="mode-badge normal" id="mode-badge">Normal</span>
       <div class="fail-counter">
         Failed votes:
         <div class="fail-dot" id="fail-dot-0"></div>
@@ -220,8 +252,8 @@
 <div id="screen-gameover" class="screen">
   <div class="gameover-title" id="gameover-title">—</div>
   <div class="gameover-reason" id="gameover-reason"></div>
-  <div id="gameover-reveal" style="margin-top:16px;width:100%;max-width:700px"></div>
-  <button class="btn-ghost" style="max-width:200px;margin-top:16px" onclick="location.reload()">Play Again</button>
+  <div id="gameover-reveal" style="margin-top:20px;width:100%;max-width:700px"></div>
+  <button class="btn-ghost" style="max-width:200px;margin-top:20px" onclick="location.reload()">Play Again</button>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
