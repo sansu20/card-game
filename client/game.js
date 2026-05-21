@@ -8,6 +8,7 @@ let privateInfo = null;
 let myHand = [];
 let isHost = false;
 let currentMode = "normal";
+let awaitingInvestigateAck = false; // prevents state_update from wiping investigate result
 
 // ── Helpers ────────────────────────────────────────────────────
 function showScreen(id) {
@@ -114,6 +115,8 @@ socket.on("game_started", (data) => {
 socket.on("state_update", (data) => {
   publicState = data.publicState;
   if (publicState.phase === "game_over") return;
+  // Don't re-render if we're showing an investigate result — leader hasn't clicked Done yet
+  if (awaitingInvestigateAck) return;
   renderGameState();
 });
 socket.on("private_update", (data) => {
@@ -151,6 +154,7 @@ socket.on("power_peek", (data) => {
 
 // Investigate result — shown to leader only, with Done button to finish round
 socket.on("power_investigate_result", (data) => {
+  awaitingInvestigateAck = true;
   const content = document.getElementById("phase-content");
   let resultColor, resultText;
 
@@ -469,7 +473,7 @@ function assistantPlay(index) {
   socket.emit("assistant_play", { cardIndex: index });
 }
 function peekDone() { socket.emit("power_peek_done"); }
-function investigateDone() { socket.emit("power_investigate_done"); }
+function investigateDone() { awaitingInvestigateAck = false; socket.emit("power_investigate_done"); }
 function powerEliminate(targetId) { socket.emit("power_eliminate", { targetId }); }
 function powerInvestigate(targetId) { socket.emit("power_investigate", { targetId }); }
 function powerChaosInvestigate(targetId) { socket.emit("power_chaos_investigate", { targetId }); }
